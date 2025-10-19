@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  # Nginx Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: {{ project_name }}_nginx
+    restart: unless-stopped
+    ports:
+      - "{{ ports.http }}:80"
+      - "{{ ports.https }}:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../certs/{{ domain }}:/etc/nginx/certs:ro
+    depends_on:
+      - springboot
+    networks:
+      - {{ network_name }}
+
+  # SpringBoot Application
+  springboot:
+    build:
+      context: .
+      dockerfile: Dockerfile.java
+    container_name: {{ project_name }}_springboot
+    restart: unless-stopped
+    working_dir: /app
+    volumes:
+      - ./backend:/app
+      - maven_cache:/root/.m2
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/{{ db.database }}
+      - SPRING_DATASOURCE_USERNAME={{ db.username }}
+      - SPRING_DATASOURCE_PASSWORD={{ db.password }}
+      - SPRING_REDIS_HOST=redis
+      - SPRING_REDIS_PORT=6379
+      - SERVER_PORT={{ ports.backend }}
+    ports:
+      - "{{ ports.backend }}:{{ ports.backend }}"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:{{ ports.backend }}/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - {{ network_name }}
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: {{ project_name }}_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: {{ db.database }}
+      POSTGRES_USER: {{ db.username }}
+      POSTGRES_PASSWORD: {{ db.password }}
+    ports:
+      - "{{ ports.postgres }}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ db.username }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - {{ network_name }}
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: {{ project_name }}_redis
+    restart: unless-stopped
+    ports:
+      - "{{ ports.redis }}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - {{ network_name }}
+
+networks:
+  {{ network_name }}:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  maven_cache:
+    driver: local

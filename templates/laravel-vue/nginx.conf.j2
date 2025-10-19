@@ -1,0 +1,80 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain }};
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{ domain }};
+    root /var/www/html/public;
+
+    index index.php index.html;
+
+    # SSL Configuration
+    ssl_certificate /etc/nginx/certs/{{ domain }}.pem;
+    ssl_certificate_key /etc/nginx/certs/{{ domain }}-key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+    # Logging
+    access_log /var/log/nginx/{{ project_name }}_access.log;
+    error_log /var/log/nginx/{{ project_name }}_error.log;
+
+    # Max upload size
+    client_max_body_size 20M;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
+
+    # Main location
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Vue SPA fallback
+    location /app {
+        alias /var/www/html/public/app;
+        try_files $uri $uri/ /app/index.html;
+    }
+
+    # PHP-FPM handler
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass php:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+        fastcgi_buffering off;
+    }
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+
+    # Static assets caching
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Deny access to sensitive files
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}

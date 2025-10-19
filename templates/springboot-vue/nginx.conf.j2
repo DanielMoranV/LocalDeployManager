@@ -1,0 +1,110 @@
+upstream springboot_backend {
+    server springboot:{{ ports.backend }};
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ domain }};
+    return 301 https://$server_name$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name {{ domain }};
+
+    # SSL Configuration
+    ssl_certificate /etc/nginx/certs/{{ domain }}.pem;
+    ssl_certificate_key /etc/nginx/certs/{{ domain }}-key.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer-when-downgrade" always;
+
+    # Logging
+    access_log /var/log/nginx/{{ project_name }}_access.log;
+    error_log /var/log/nginx/{{ project_name }}_error.log;
+
+    # Max upload size
+    client_max_body_size 20M;
+
+    # Gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css text/xml text/javascript application/x-javascript application/xml+rss application/json;
+
+    # API requests to SpringBoot
+    location /api {
+        proxy_pass http://springboot_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Actuator endpoints (optional, for monitoring)
+    location /actuator {
+        proxy_pass http://springboot_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Optional: Restrict access to actuator
+        # allow 127.0.0.1;
+        # deny all;
+    }
+
+    # Swagger/API Docs (optional)
+    location /swagger-ui {
+        proxy_pass http://springboot_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    location /v3/api-docs {
+        proxy_pass http://springboot_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    # Serve Vue.js frontend from SpringBoot static resources
+    location / {
+        proxy_pass http://springboot_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static assets caching
+    location ~* \.(jpg|jpeg|png|gif|ico|css|js|svg|woff|woff2|ttf|eot)$ {
+        proxy_pass http://springboot_backend;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+}

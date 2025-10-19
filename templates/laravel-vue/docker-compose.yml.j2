@@ -1,0 +1,86 @@
+version: '3.8'
+
+services:
+  # Nginx Web Server
+  nginx:
+    image: nginx:alpine
+    container_name: {{ project_name }}_nginx
+    restart: unless-stopped
+    ports:
+      - "{{ ports.http }}:80"
+      - "{{ ports.https }}:443"
+    volumes:
+      - ./backend:/var/www/html
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../certs/{{ domain }}:/etc/nginx/certs:ro
+    depends_on:
+      - php
+    networks:
+      - {{ network_name }}
+
+  # PHP-FPM Service
+  php:
+    build:
+      context: .
+      dockerfile: Dockerfile.php
+    container_name: {{ project_name }}_php
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+    environment:
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - {{ network_name }}
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: {{ project_name }}_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: {{ db.root_password }}
+      MYSQL_DATABASE: {{ db.database }}
+      MYSQL_USER: {{ db.username }}
+      MYSQL_PASSWORD: {{ db.password }}
+    ports:
+      - "{{ ports.mysql }}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p{{ db.root_password }}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - {{ network_name }}
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: {{ project_name }}_redis
+    restart: unless-stopped
+    ports:
+      - "{{ ports.redis }}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - {{ network_name }}
+
+networks:
+  {{ network_name }}:
+    driver: bridge
+
+volumes:
+  mysql_data:
+    driver: local

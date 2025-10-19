@@ -1,0 +1,29 @@
+# CLI Framework
+click>=8.1.7
+
+# Docker SDK para gestión de contenedores
+docker>=7.0.0
+
+# Operaciones Git
+GitPython>=3.1.40
+
+# Motor de templates
+Jinja2>=3.1.2
+
+# Gestión de archivos .env
+python-dotenv>=1.0.0
+
+# Terminal UI mejorado (progress bars, colores, formateo)
+rich>=13.7.0
+
+# Parsing de YAML para docker-compose
+PyYAML>=6.0.1
+
+# Prompts interactivos (opcional, para confirmaciones)
+questionary>=2.0.1
+
+# Utilidades de sistema
+psutil>=5.9.6
+
+# Validación de datos
+pydantic>=2.5.0
