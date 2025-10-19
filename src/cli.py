@@ -15,7 +15,9 @@ from .utils import (
     save_config,
     get_default_config,
     project_exists,
-    get_project_config
+    get_project_config,
+    get_active_project_path,
+    save_project_config
 )
 
 
@@ -114,12 +116,15 @@ def init(ctx, stack, domain, backend_repo, frontend_repo, http_port, https_port,
         sys.exit(1)
 
     # Validar dominio
-    from .utils import validate_domain, validate_url
+    from .utils import validate_domain, validate_url, normalize_git_url
     if not validate_domain(domain):
         logger.error(f"Invalid domain format: {domain}")
         sys.exit(1)
 
-    # Validar URLs
+    # Normalizar y validar URLs
+    backend_repo = normalize_git_url(backend_repo)
+    frontend_repo = normalize_git_url(frontend_repo)
+
     if not validate_url(backend_repo):
         logger.error(f"Invalid backend repository URL: {backend_repo}")
         sys.exit(1)
@@ -129,6 +134,8 @@ def init(ctx, stack, domain, backend_repo, frontend_repo, http_port, https_port,
         sys.exit(1)
 
     logger.success("Pre-flight checks passed")
+    logger.info(f"Backend: {backend_repo}")
+    logger.info(f"Frontend: {frontend_repo}")
 
     # === 2. DETERMINAR CONFIGURACIÓN ===
     logger.step("Determining project configuration")
@@ -1431,9 +1438,11 @@ def shell(service, shell):
     logger.info("Type 'exit' to close the shell\n")
 
     try:
-        # Ejecutar docker-compose exec sin -T para permitir interactividad
-        cmd = [
-            'docker-compose',
+        # Detectar comando de Docker Compose
+        compose_cmd = docker_manager.compose_cmd
+
+        # Ejecutar docker compose exec sin -T para permitir interactividad
+        cmd = compose_cmd + [
             '-f', str(compose_file),
             'exec',
             service,

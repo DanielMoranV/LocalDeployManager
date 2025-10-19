@@ -162,7 +162,26 @@ class LDMLogger:
         for service, info in services.items():
             status_style = "green" if info.get('running') else "red"
             status = "Running" if info.get('running') else "Stopped"
-            ports = info.get('ports', 'N/A')
+            ports_raw = info.get('ports', [])
+
+            # Convertir lista de puertos a string
+            if isinstance(ports_raw, list):
+                if ports_raw:
+                    # Formatear puertos desde la estructura de Publishers
+                    ports_str = []
+                    for port_info in ports_raw:
+                        if isinstance(port_info, dict):
+                            published = port_info.get('PublishedPort', '')
+                            target = port_info.get('TargetPort', '')
+                            if published and target:
+                                ports_str.append(f"{published}→{target}")
+                            elif published:
+                                ports_str.append(str(published))
+                    ports = ", ".join(ports_str) if ports_str else "N/A"
+                else:
+                    ports = "N/A"
+            else:
+                ports = str(ports_raw) if ports_raw else "N/A"
 
             table.add_row(
                 service,

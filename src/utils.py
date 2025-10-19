@@ -198,8 +198,35 @@ def validate_url(url: str) -> bool:
         r'^https?://',
         r'^git@',
         r'^ssh://',
+        r'^github\.com/',  # Aceptar github.com sin protocolo
+        r'^gitlab\.com/',  # Aceptar gitlab.com sin protocolo
+        r'^bitbucket\.org/',  # Aceptar bitbucket.org sin protocolo
     ]
     return any(re.match(pattern, url) for pattern in patterns)
+
+
+def normalize_git_url(url: str) -> str:
+    """
+    Normaliza una URL de git agregando https:// si es necesario
+
+    Args:
+        url: URL del repositorio
+
+    Returns:
+        URL normalizada con protocolo
+    """
+    import re
+
+    # Si ya tiene protocolo, retornar como está
+    if re.match(r'^(https?|git|ssh)://', url) or url.startswith('git@'):
+        return url
+
+    # Si es una URL de github, gitlab o bitbucket sin protocolo, agregar https://
+    if re.match(r'^(github\.com|gitlab\.com|bitbucket\.org)/', url):
+        return f'https://{url}'
+
+    # Por defecto, retornar como está
+    return url
 
 
 def normalize_project_name(name: str) -> str:

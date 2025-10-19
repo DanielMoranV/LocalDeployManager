@@ -27,11 +27,52 @@ class DockerManager:
         self.compose_file = Path(compose_file) if compose_file else None
         self.client = None
 
+        # Detectar comando de Docker Compose (v1 vs v2)
+        self.compose_cmd = self._detect_compose_command()
+
         try:
             self.client = docker.from_env()
             logger.log_debug("Docker client initialized")
         except DockerException as e:
             logger.log_error(f"Failed to initialize Docker client: {str(e)}")
+
+    def _detect_compose_command(self) -> List[str]:
+        """
+        Detecta qué comando de Docker Compose usar
+
+        Returns:
+            Lista con el comando a usar (['docker', 'compose'] o ['docker-compose'])
+        """
+        # Intentar docker compose (v2, integrado)
+        try:
+            result = subprocess.run(
+                ['docker', 'compose', 'version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                logger.log_debug("Using Docker Compose v2 (docker compose)")
+                return ['docker', 'compose']
+        except Exception:
+            pass
+
+        # Intentar docker-compose (v1, standalone)
+        try:
+            result = subprocess.run(
+                ['docker-compose', '--version'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                logger.log_debug("Using Docker Compose v1 (docker-compose)")
+                return ['docker-compose']
+        except Exception:
+            pass
+
+        # Default a v2 (más moderno)
+        return ['docker', 'compose']
 
     def is_docker_running(self) -> bool:
         """
@@ -87,7 +128,7 @@ class DockerManager:
             return False
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'up']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'up']
 
             if detached:
                 cmd.append('-d')
@@ -135,7 +176,7 @@ class DockerManager:
             return False
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'down']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'down']
 
             if remove_volumes:
                 cmd.append('-v')
@@ -176,7 +217,7 @@ class DockerManager:
             return False
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'restart']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'restart']
 
             if services:
                 cmd.extend(services)
@@ -219,7 +260,7 @@ class DockerManager:
             return False
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'build']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'build']
 
             if no_cache:
                 cmd.append('--no-cache')
@@ -259,7 +300,7 @@ class DockerManager:
             return None
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'ps', '--format', 'json']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'ps', '--format', 'json']
 
             result = subprocess.run(
                 cmd,
@@ -304,7 +345,7 @@ class DockerManager:
             return False
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'logs', f'--tail={tail}']
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'logs', f'--tail={tail}']
 
             if follow:
                 cmd.append('-f')
@@ -342,7 +383,7 @@ class DockerManager:
             return False, "docker-compose.yml not found"
 
         try:
-            cmd = ['docker-compose', '-f', str(self.compose_file), 'exec', '-T', service] + command
+            cmd = self.compose_cmd + ['-f', str(self.compose_file), 'exec', '-T', service] + command
 
             result = subprocess.run(
                 cmd,
@@ -649,19 +690,34 @@ def check_docker_installed() -> bool:
 
 def check_docker_compose_installed() -> bool:
     """
-    Verifica si docker-compose está instalado
+    Verifica si docker-compose está instalado (v1 o v2)
 
     Returns:
         True si docker-compose está instalado
     """
+    # Intentar docker compose (v2)
+    try:
+        result = subprocess.run(
+            ['docker', 'compose', 'version'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            return True
+    except Exception:
+        pass
+
+    # Intentar docker-compose (v1)
     try:
         result = subprocess.run(
             ['docker-compose', '--version'],
             capture_output=True,
-            text=True
+            text=True,
+            timeout=5
         )
         return result.returncode == 0
-    except FileNotFoundError:
+    except Exception:
         return False
 
 
