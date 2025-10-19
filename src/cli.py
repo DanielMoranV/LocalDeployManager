@@ -447,6 +447,14 @@ def deploy(ctx, fresh_db, seed, with_backup, no_pull, no_deps, no_build):
         logger.error("docker-compose.yml not found")
         sys.exit(1)
 
+    # === 1.5. VALIDAR CONFIGURACIÓN ===
+    from .validators import run_all_validations
+
+    if not run_all_validations(active_project_path, stack):
+        logger.error("Configuration validation failed. Please fix the issues above before deploying.")
+        logger.info("Deploy aborted due to configuration errors.")
+        sys.exit(1)
+
     # === 2. BACKUP (OPCIONAL) ===
     if with_backup:
         logger.header("Creating Backup")

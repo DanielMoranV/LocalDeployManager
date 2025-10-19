@@ -24,10 +24,8 @@ services:
       dockerfile: Dockerfile.java
     container_name: {{ project_name }}_springboot
     restart: unless-stopped
-    working_dir: /app
-    volumes:
-      - ./backend:/app
-      - maven_cache:/root/.m2
+    # NOTE: No volumes mounted to /app - we use the compiled JAR from the Docker image
+    # For development with hot reload, uncomment: - ./backend:/app
     environment:
       - SPRING_PROFILES_ACTIVE=prod
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/{{ db.database }}
@@ -36,8 +34,8 @@ services:
       - SPRING_REDIS_HOST=redis
       - SPRING_REDIS_PORT=6379
       - SERVER_PORT={{ ports.backend }}
-    ports:
-      - "{{ ports.backend }}:{{ ports.backend }}"
+    # NOTE: Ports are not exposed to host - nginx handles all external traffic
+    # Uncomment for direct access during debugging: ports: - "{{ ports.backend }}:{{ ports.backend }}"
     depends_on:
       - postgres
       - redis
