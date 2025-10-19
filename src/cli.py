@@ -750,6 +750,27 @@ def deploy(ctx, fresh_db, seed, with_backup, no_pull, no_deps, no_build):
     logger.info(f"  [cyan]https://{domain}[/cyan]")
     logger.print()
 
+    # === 13. REGISTRAR EN HISTORIAL ===
+    try:
+        from .history_manager import add_deploy_to_history
+        add_deploy_to_history(
+            deploy_type='deploy',
+            success=True,
+            duration=duration,
+            backend_commit=backend_commit_new,
+            frontend_commit=frontend_commit_new,
+            options={
+                'fresh_db': fresh_db,
+                'seed': seed,
+                'with_backup': with_backup,
+                'no_pull': no_pull,
+                'no_deps': no_deps,
+                'no_build': no_build
+            }
+        )
+    except Exception as e:
+        logger.log_debug(f"Failed to record deploy in history: {str(e)}")
+
     logger.success("Deploy successful!")
 
 
@@ -776,25 +797,122 @@ def config_show():
 
 
 @config.command('edit')
-def config_edit():
-    """Abre el archivo .env en el editor por defecto"""
+@click.option('--project', is_flag=True, help='Edit project configuration instead of .env')
+def config_edit(project):
+    """Abre el archivo de configuración en el editor"""
+    import subprocess
+    import os
+
     if not project_exists():
-        logger.error("No hay proyecto activo")
+        logger.error("No active project")
         sys.exit(1)
 
-    # TODO: Implementar en Fase 8
-    logger.warning("Comando 'config edit' será implementado en Fase 8")
+    active_project_path = get_active_project_path()
+
+    if project:
+        # Editar .project-config.json
+        config_file = active_project_path / ".project-config.json"
+        file_type = "project configuration"
+    else:
+        # Editar .env del backend
+        config_file = active_project_path / "backend" / ".env"
+        file_type = "environment configuration"
+
+    if not config_file.exists():
+        logger.error(f"Configuration file not found: {config_file}")
+        sys.exit(1)
+
+    # Determinar editor
+    editor = os.environ.get('EDITOR', os.environ.get('VISUAL', 'nano'))
+
+    logger.info(f"Opening {file_type} with {editor}...")
+    logger.info(f"File: {config_file}")
+    logger.print()
+
+    try:
+        subprocess.run([editor, str(config_file)])
+        logger.success("Configuration file closed")
+        logger.info("Restart services to apply changes: ldm restart")
+    except FileNotFoundError:
+        logger.error(f"Editor '{editor}' not found")
+        logger.info(f"Set EDITOR environment variable or edit manually:")
+        logger.info(f"  {config_file}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Error opening editor: {str(e)}")
+        sys.exit(1)
 
 
 @config.command('regen-keys')
+@click.confirmation_option(prompt='⚠️  This will regenerate security keys. Continue?')
 def config_regen_keys():
     """Regenera APP_KEY y JWT_SECRET"""
+    from .env_manager import EnvManager
+    from .utils import generate_secure_password
+
     if not project_exists():
-        logger.error("No hay proyecto activo")
+        logger.error("No active project")
         sys.exit(1)
 
-    # TODO: Implementar en Fase 8
-    logger.warning("Comando 'config regen-keys' será implementado en Fase 8")
+    active_project_path = get_active_project_path()
+    project_config = get_project_config()
+
+    if not project_config:
+        logger.error("Project configuration not found")
+        sys.exit(1)
+
+    stack = project_config.get('stack')
+    env_path = active_project_path / "backend" / ".env"
+
+    if not env_path.exists():
+        logger.error(".env file not found")
+        sys.exit(1)
+
+    logger.header("Regenerating Security Keys")
+
+    env_manager = EnvManager(env_path)
+
+    try:
+        if stack == 'laravel-vue':
+            # Generar nuevo APP_KEY (Laravel format)
+            import base64
+            import secrets
+            app_key = 'base64:' + base64.b64encode(secrets.token_bytes(32)).decode()
+
+            # Generar nuevo JWT_SECRET
+            jwt_secret = generate_secure_password(64)
+
+            logger.step("Generating new keys")
+            env_manager.set('APP_KEY', app_key)
+            env_manager.set('JWT_SECRET', jwt_secret)
+
+            logger.success("APP_KEY regenerated")
+            logger.success("JWT_SECRET regenerated")
+
+        elif stack == 'springboot-vue':
+            # Generar nuevo JWT_SECRET para SpringBoot
+            jwt_secret = generate_secure_password(64)
+
+            logger.step("Generating new JWT secret")
+            env_manager.set('JWT_SECRET', jwt_secret)
+
+            logger.success("JWT_SECRET regenerated")
+
+        logger.print()
+        logger.panel(
+            "[yellow]⚠️  Important:[/yellow]\n\n"
+            "• Existing sessions will be invalidated\n"
+            "• Users will need to log in again\n"
+            "• Restart services to apply changes:\n"
+            "  [cyan]ldm restart[/cyan]",
+            title="Keys Regenerated",
+            style="yellow"
+        )
+
+    except Exception as e:
+        logger.error(f"Error regenerating keys: {str(e)}")
+        logger.log_exception(e)
+        sys.exit(1)
 
 
 # === Comando: status ===
@@ -1056,37 +1174,163 @@ def backup():
 
 @backup.command('create')
 @click.option('--name', help='Nombre personalizado para el backup')
-def backup_create(name):
-    """Crea un nuevo backup"""
+@click.option('--no-db', is_flag=True, help='No incluir backup de base de datos')
+def backup_create(name, no_db):
+    """Crea un nuevo backup del proyecto activo"""
+    from .backup_manager import BackupManager
+
     if not project_exists():
-        logger.error("No hay proyecto activo")
+        logger.error("No active project")
         sys.exit(1)
 
-    # TODO: Implementar en Fase 6
-    logger.warning("Comando 'backup create' será implementado en Fase 6")
+    active_project_path = get_active_project_path()
+    project_config = get_project_config()
+
+    if not project_config:
+        logger.error("Project configuration not found")
+        sys.exit(1)
+
+    # Crear backup
+    backup_manager = BackupManager()
+    success, backup_id = backup_manager.create_backup(
+        project_path=active_project_path,
+        project_config=project_config,
+        name=name,
+        include_db=not no_db
+    )
+
+    if success:
+        logger.print()
+        logger.panel(
+            f"[green]✓[/green] Backup created successfully\n\n"
+            f"Backup ID: [cyan]{backup_id}[/cyan]\n\n"
+            f"To restore this backup:\n"
+            f"  [yellow]ldm backup restore {backup_id}[/yellow]",
+            title="Backup Complete"
+        )
+    else:
+        logger.error("Backup creation failed")
+        sys.exit(1)
 
 
 @backup.command('list')
 def backup_list():
     """Lista todos los backups disponibles"""
-    if not project_exists():
-        logger.error("No hay proyecto activo")
-        sys.exit(1)
+    from .backup_manager import BackupManager
+    from rich.table import Table
 
-    # TODO: Implementar en Fase 6
-    logger.warning("Comando 'backup list' será implementado en Fase 6")
+    backup_manager = BackupManager()
+    backups = backup_manager.list_backups()
+
+    if not backups:
+        logger.info("No backups found")
+        logger.info("Create a backup with: ldm backup create")
+        return
+
+    logger.header(f"Available Backups ({len(backups)})")
+
+    # Crear tabla
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Backup ID", style="cyan")
+    table.add_column("Date/Time", style="white")
+    table.add_column("Project", style="yellow")
+    table.add_column("Stack", style="magenta")
+    table.add_column("Size", style="green", justify="right")
+    table.add_column("DB", justify="center")
+
+    for backup in backups:
+        backup_id = backup.get('backup_id', 'unknown')
+
+        # Formatear timestamp
+        timestamp = backup.get('timestamp', '')
+        if timestamp:
+            try:
+                from datetime import datetime
+                dt = datetime.fromisoformat(timestamp)
+                timestamp_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                timestamp_str = timestamp[:16] if len(timestamp) > 16 else timestamp
+        else:
+            timestamp_str = "unknown"
+
+        project_name = backup.get('project', {}).get('name', 'unknown')
+        stack = backup.get('project', {}).get('stack', 'unknown')
+        size_mb = backup.get('size_mb', 0)
+        has_db = "✓" if backup.get('database_backup', False) else "✗"
+
+        table.add_row(
+            backup_id,
+            timestamp_str,
+            project_name,
+            stack,
+            f"{size_mb:.2f} MB",
+            has_db
+        )
+
+    logger.print(table)
+    logger.print()
+    logger.info("To restore a backup: ldm backup restore <backup-id>")
 
 
 @backup.command('restore')
 @click.argument('backup_id')
-def backup_restore(backup_id):
+@click.option('--no-db', is_flag=True, help='No restaurar base de datos')
+@click.confirmation_option(
+    prompt='⚠️  This will overwrite the current project. Continue?'
+)
+def backup_restore(backup_id, no_db):
     """Restaura un backup específico"""
+    from .backup_manager import BackupManager
+    from .docker_manager import DockerManager
+
     if not project_exists():
-        logger.error("No hay proyecto activo")
+        logger.error("No active project")
         sys.exit(1)
 
-    # TODO: Implementar en Fase 6
-    logger.warning("Comando 'backup restore' será implementado en Fase 6")
+    active_project_path = get_active_project_path()
+
+    # Verificar que el backup existe
+    backup_manager = BackupManager()
+    backup_info = backup_manager.get_backup(backup_id)
+
+    if not backup_info:
+        logger.error(f"Backup not found: {backup_id}")
+        logger.info("List available backups with: ldm backup list")
+        sys.exit(1)
+
+    # Mostrar info del backup
+    logger.header(f"Restoring Backup: {backup_id}")
+    logger.info(f"Project: {backup_info.get('project', {}).get('name', 'unknown')}")
+    logger.info(f"Stack: {backup_info.get('project', {}).get('stack', 'unknown')}")
+    logger.info(f"Date: {backup_info.get('timestamp', 'unknown')[:16]}")
+    logger.print()
+
+    # Detener servicios si están corriendo
+    compose_file = active_project_path / "docker-compose.yml"
+    if compose_file.exists():
+        logger.step("Stopping services")
+        docker_manager = DockerManager(compose_file)
+        docker_manager.compose_down(remove_volumes=False)
+        logger.success("Services stopped")
+
+    # Restaurar backup
+    success = backup_manager.restore_backup(
+        backup_id=backup_id,
+        target_path=active_project_path,
+        restore_db=not no_db
+    )
+
+    if success:
+        logger.print()
+        logger.panel(
+            f"[green]✓[/green] Backup restored successfully\n\n"
+            f"Start services with:\n"
+            f"  [yellow]ldm start[/yellow]",
+            title="Restore Complete"
+        )
+    else:
+        logger.error("Backup restore failed")
+        sys.exit(1)
 
 
 # === Comando: logs ===
@@ -1229,15 +1473,139 @@ def shell(service, shell):
 # === Comando: history ===
 
 @cli.command()
-@click.argument('show_id', required=False)
-def history(show_id):
+@click.argument('deploy_id', required=False, type=int)
+@click.option('--limit', type=int, default=20, help='Cantidad de deploys a mostrar')
+def history(deploy_id, limit):
     """Muestra historial de deploys"""
+    from .history_manager import HistoryManager
+    from rich.table import Table
+    from datetime import datetime
+
     if not project_exists():
-        logger.error("No hay proyecto activo")
+        logger.error("No active project")
         sys.exit(1)
 
-    # TODO: Implementar en Fase 7
-    logger.warning("Comando 'history' será implementado en Fase 7")
+    history_manager = HistoryManager()
+
+    # Si se especifica un ID, mostrar detalles
+    if deploy_id:
+        deploy = history_manager.get_deploy(deploy_id)
+
+        if not deploy:
+            logger.error(f"Deploy #{deploy_id} not found")
+            sys.exit(1)
+
+        logger.header(f"Deploy #{deploy_id} Details")
+
+        # Formatear timestamp
+        timestamp = deploy.get('timestamp', '')
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp)
+                timestamp_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                timestamp_str = timestamp
+        else:
+            timestamp_str = "unknown"
+
+        success = deploy.get('success', False)
+        status_str = "[green]✓ Success[/green]" if success else "[red]✗ Failed[/red]"
+
+        info = f"""[yellow]Type:[/yellow] {deploy.get('type', 'unknown')}
+[yellow]Status:[/yellow] {status_str}
+[yellow]Timestamp:[/yellow] {timestamp_str}
+[yellow]Duration:[/yellow] {deploy.get('duration', 0):.1f}s
+
+[yellow]Git Commits:[/yellow]
+  • Backend: {deploy.get('commits', {}).get('backend', 'N/A')}
+  • Frontend: {deploy.get('commits', {}).get('frontend', 'N/A')}"""
+
+        options = deploy.get('options', {})
+        if options:
+            info += "\n\n[yellow]Options:[/yellow]"
+            for key, value in options.items():
+                if value:
+                    info += f"\n  • {key}: {value}"
+
+        error = deploy.get('error')
+        if error:
+            info += f"\n\n[red]Error:[/red] {error}"
+
+        logger.panel(info, title=f"Deploy #{deploy_id}")
+        return
+
+    # Mostrar lista de deploys
+    history_list = history_manager.load_history()
+
+    if not history_list:
+        logger.info("No deploy history found")
+        logger.info("Deploy history is recorded automatically with each deploy")
+        return
+
+    # Limitar cantidad
+    history_list = history_list[-limit:]
+
+    logger.header(f"Deploy History (last {len(history_list)} deploys)")
+
+    # Crear tabla
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("ID", style="cyan", width=5)
+    table.add_column("Date/Time", style="white")
+    table.add_column("Type", style="yellow")
+    table.add_column("Duration", style="magenta", justify="right")
+    table.add_column("Status", justify="center")
+    table.add_column("Backend", style="dim")
+    table.add_column("Frontend", style="dim")
+
+    for deploy in history_list:
+        deploy_id_str = str(deploy.get('id', '?'))
+
+        # Formatear timestamp
+        timestamp = deploy.get('timestamp', '')
+        if timestamp:
+            try:
+                dt = datetime.fromisoformat(timestamp)
+                timestamp_str = dt.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                timestamp_str = timestamp[:16] if len(timestamp) > 16 else timestamp
+        else:
+            timestamp_str = "unknown"
+
+        deploy_type = deploy.get('type', 'unknown')
+        duration = f"{deploy.get('duration', 0):.1f}s"
+
+        success = deploy.get('success', False)
+        status = "✓" if success else "✗"
+        status_color = "green" if success else "red"
+
+        backend_commit = deploy.get('commits', {}).get('backend', 'N/A')
+        if backend_commit and len(backend_commit) > 7:
+            backend_commit = backend_commit[:7]
+
+        frontend_commit = deploy.get('commits', {}).get('frontend', 'N/A')
+        if frontend_commit and len(frontend_commit) > 7:
+            frontend_commit = frontend_commit[:7]
+
+        table.add_row(
+            deploy_id_str,
+            timestamp_str,
+            deploy_type,
+            duration,
+            f"[{status_color}]{status}[/{status_color}]",
+            backend_commit,
+            frontend_commit
+        )
+
+    logger.print(table)
+    logger.print()
+
+    # Estadísticas
+    total = len(history_manager.load_history())
+    successful = history_manager.get_successful_deploys_count()
+    failed = history_manager.get_failed_deploys_count()
+
+    logger.info(f"Total deploys: {total} ([green]{successful} successful[/green], [red]{failed} failed[/red])")
+    logger.info("View deploy details: ldm history <id>")
 
 
 # === Comando: check-ports ===
