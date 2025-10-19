@@ -63,7 +63,7 @@ brew install python3 git docker docker-compose mkcert
 
 ```bash
 # Clonar repositorio
-git clone https://github.com/tu-usuario/LocalDeployManager.git
+git clone https://github.com/DanielMoranV/LocalDeployManager.git
 cd LocalDeployManager
 
 # Ejecutar script de instalación
@@ -80,7 +80,7 @@ ldm version
 
 ```bash
 # Clonar repositorio
-git clone https://github.com/tu-usuario/LocalDeployManager.git
+git clone https://github.com/DanielMoranV/LocalDeployManager.git
 cd LocalDeployManager
 
 # Crear entorno virtual
@@ -613,7 +613,7 @@ Este proyecto está bajo la Licencia MIT. Ver archivo `LICENSE` para más detall
 
 ## 👥 Autores
 
-- **Desarrollo Principal** - [Tu Nombre](https://github.com/tu-usuario)
+- **Desarrollo Principal** - [Daniel Moran Vilchez](https://github.com/DanielMoranV)
 
 ## 🙏 Agradecimientos
 
@@ -624,7 +624,7 @@ Este proyecto está bajo la Licencia MIT. Ver archivo `LICENSE` para más detall
 
 ## 📞 Soporte
 
-- **Issues**: [GitHub Issues](https://github.com/tu-usuario/LocalDeployManager/issues)
+- **Issues**: [GitHub Issues](https://github.com/DanielMoranV/LocalDeployManager/issues)
 - **Documentación**: Ver carpeta `docs/`
 - **Email**: tu-email@ejemplo.com
 
